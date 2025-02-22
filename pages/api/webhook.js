@@ -30,7 +30,7 @@ export default async function handler(req, res) {
     `;
 
     // Process the payload (optional, based on your use case)
-    const result = await processWebhookData(payload);
+   // const result = await processWebhookData(payload);
 
     res.status(200).json({ message: 'Webhook processed and stored successfully', result });
   } catch (error) {
