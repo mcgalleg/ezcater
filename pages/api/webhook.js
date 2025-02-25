@@ -3,7 +3,7 @@ import { sql } from '@vercel/postgres';
 import { createHmac } from 'crypto';
 import { processWebhookData } from '../../lib/helpers';
 import { callGrokApiWithOrder } from '../../lib/grok';
-import { uploadMarkdownToGoogleDrive, formatOrderAsMarkdown } from '../../lib/googleDrive';
+import { createNotionCateringOrder } from '../../lib/notion';
 
 export const config = {
   api: {
@@ -148,62 +148,39 @@ export default async function handler(req, res) {
     }
 
     let grokResult = null;
+    let notionPageResult = null;
+    
     if (result.data?.order) {
       grokResult = await callGrokApiWithOrder(result.data.order);
       console.debug("Grok API response:", grokResult);
 
-      let jsonData;
       try {
-        jsonData = JSON.parse(grokResult.content);
-      } catch (error) {
-        console.error("Failed to parse Grok response:", error);
-        
-        // Create a markdown file with the raw content
+        // Create Notion page with the order data
         const orderData = result.data.order;
-        const markdownContent = formatOrderAsMarkdown(orderData, grokResult);
-        
-        // Generate a filename with order number and timestamp
-        const orderNumber = orderData.orderNumber || 'unknown';
-        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-        const fileName = `Order_${orderNumber}_${timestamp}.md`;
-        
-        // Upload to Google Drive
-        const uploadResult = await uploadMarkdownToGoogleDrive(markdownContent, fileName);
-        console.debug("Markdown file uploaded to Google Drive:", uploadResult);
-        
-        return res.status(200).json({ 
-          message: 'Webhook processed but Grok response parsing failed. Markdown file uploaded to Google Drive.', 
+        notionPageResult = await createNotionCateringOrder(orderData, grokResult);
+        console.debug("Notion page created:", notionPageResult);
+      } catch (error) {
+        console.error("Failed to create Notion page:", error);
+        return res.status(500).json({ 
+          message: 'Webhook processed but Notion page creation failed',
+          error: error.message,
           result, 
-          grokResult,
-          driveFile: uploadResult
+          grokResult
         });
       }
-
-      // Format the order data as markdown
-      const orderData = result.data.order;
-      const markdownContent = formatOrderAsMarkdown(orderData, grokResult);
-      
-      // Generate a filename with order number and timestamp
-      const orderNumber = orderData.orderNumber || 'unknown';
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-      const fileName = `Order_${orderNumber}_${timestamp}.md`;
-      
-      // Upload to Google Drive
-      const uploadResult = await uploadMarkdownToGoogleDrive(markdownContent, fileName);
-      console.debug("Markdown file uploaded to Google Drive:", uploadResult);
     }
 
     return res.status(200).json({ 
       message: result.message || 'Webhook processed successfully', 
       result, 
-      grokResult 
+      grokResult,
+      notionPage: notionPageResult
     });
-
   } catch (error) {
-    console.error('Webhook handling error:', error);
+    console.error("Webhook processing error:", error);
     return res.status(500).json({ 
-      error: 'Failed to process webhook',
-      details: error.message 
+      message: 'Failed to process webhook', 
+      error: error.message 
     });
   }
 }
