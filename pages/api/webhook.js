@@ -3,7 +3,7 @@ import { sql } from '@vercel/postgres';
 import { createHmac } from 'crypto';
 import { processWebhookData } from '../../lib/helpers';
 import { callGrokApiWithOrder } from '../../lib/grok';
-import { sendToSlack } from '../../lib/slack';
+import { uploadMarkdownToGoogleDrive, formatOrderAsMarkdown } from '../../lib/googleDrive';
 
 export const config = {
   api: {
@@ -158,93 +158,39 @@ export default async function handler(req, res) {
       } catch (error) {
         console.error("Failed to parse Grok response:", error);
         
-        const formattedContent = grokResult.content
-          .split('\n')
-          .map(line => line.trim())
-          .filter(line => line.length > 0)
-          .join('\n');
-
-        const fallbackBlocks = [
-          {
-            type: "header",
-            text: { 
-              type: "plain_text", 
-              text: "New Catering Order Breakdown", 
-              emoji: true 
-            }
-          },
-          {
-            type: "section",
-            text: { 
-              type: "mrkdwn", 
-              text: "```\n" + formattedContent + "\n```" 
-            }
-          }
-        ];
-
-        await sendToSlack(fallbackBlocks);
+        // Create a markdown file with the raw content
+        const orderData = result.data.order;
+        const markdownContent = formatOrderAsMarkdown(orderData, grokResult);
+        
+        // Generate a filename with order number and timestamp
+        const orderNumber = orderData.orderNumber || 'unknown';
+        const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+        const fileName = `Order_${orderNumber}_${timestamp}.md`;
+        
+        // Upload to Google Drive
+        const uploadResult = await uploadMarkdownToGoogleDrive(markdownContent, fileName);
+        console.debug("Markdown file uploaded to Google Drive:", uploadResult);
+        
         return res.status(200).json({ 
-          message: 'Webhook processed but Grok response parsing failed', 
+          message: 'Webhook processed but Grok response parsing failed. Markdown file uploaded to Google Drive.', 
           result, 
-          grokResult 
+          grokResult,
+          driveFile: uploadResult
         });
       }
 
-      // Build Slack message
-      const blocks = [
-        {
-          type: "header",
-          text: { 
-            type: "plain_text", 
-            text: "New Catering Order Breakdown", 
-            emoji: true 
-          }
-        },
-        {
-          type: "section",
-          text: {
-            type: "mrkdwn",
-            text: `*Order Details*\nDate: ${jsonData.date}\nPickup Time: ${jsonData.pickupTime}`
-          }
-        },
-        { type: "divider" }
-      ];
-
-      // Add order items
-      jsonData.table.forEach((row) => {
-        blocks.push({
-          type: "section",
-          text: {
-            type: "mrkdwn",
-            text: `*${row.Item}*\n• Quantity: ${row.Quantity}\n• Pan Type: ${row['Pan Type']}\n• Fill Level: ${row['Fill Level']}`
-          }
-        });
-      });
-
-      blocks.push({ type: "divider" });
-
-      // Add utensil summary
-      const summary = jsonData.utensil_summary;
-      const summaryItems = [];
-      if (summary.serving_spoons > 0) summaryItems.push(`• ${summary.serving_spoons} serving spoons`);
-      if (summary.tongs > 0) summaryItems.push(`• ${summary.tongs} tongs`);
-      if (summary.plates > 0) summaryItems.push(`• ${summary.plates} plates`);
-      if (summary.utensil_rolls > 0) summaryItems.push(`• ${summary.utensil_rolls} utensil rolls`);
-
-      blocks.push({
-        type: "section",
-        text: {
-          type: "mrkdwn",
-          text: "*Required Utensils*\n" + (summaryItems.length ? summaryItems.join("\n") : "• None required")
-        }
-      });
-
-      try {
-        await sendToSlack(blocks);
-      } catch (error) {
-        console.warn("Failed to send to Slack:", error.message);
-        // Continue processing even if Slack notification fails
-      }
+      // Format the order data as markdown
+      const orderData = result.data.order;
+      const markdownContent = formatOrderAsMarkdown(orderData, grokResult);
+      
+      // Generate a filename with order number and timestamp
+      const orderNumber = orderData.orderNumber || 'unknown';
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
+      const fileName = `Order_${orderNumber}_${timestamp}.md`;
+      
+      // Upload to Google Drive
+      const uploadResult = await uploadMarkdownToGoogleDrive(markdownContent, fileName);
+      console.debug("Markdown file uploaded to Google Drive:", uploadResult);
     }
 
     return res.status(200).json({ 
