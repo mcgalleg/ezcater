@@ -14,7 +14,6 @@
     "@vercel/postgres": "^0.10.0",
     "axios": "^1.7.9",
     "dotenv": "^16.4.7",
-    "googleapis": "^133.0.0",
     "graphql": "^16.10.0",
     "next": "15.1.7",
     "node-fetch": "^2.7.0",
